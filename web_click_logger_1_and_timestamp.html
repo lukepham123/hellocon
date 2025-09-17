@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ghi nhận lần bấm (+1) và thời điểm</title>
+  <style>
+    :root { --bg:#0f172a; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --accent:#22c55e; --border:#1f2937; }
+    * { box-sizing:border-box }
+    html, body { height:100%; }
+    body { margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Inter,Arial; background:linear-gradient(180deg,#0b1023,#0f172a); color:var(--fg); }
+
+    .wrap { min-height:100vh; display:grid; place-items:center; padding:24px }
+    .card { width:min(980px, 100%); background:rgba(17,24,39,.7); backdrop-filter: blur(8px); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+
+    h1 { margin:0 0 8px; font-size:28px; }
+    .sub { color:var(--muted); margin-bottom:18px; font-size:14px }
+
+    .hero { display:grid; place-items:center; margin:10px 0 18px }
+    .count { font:800 56px/1.1 ui-sans-serif,system-ui; padding:8px 16px; border-radius:12px; background:#020617; border:1px solid var(--border); min-width:160px; text-align:center }
+    .count small{ display:block; color:var(--muted); font-weight:600; font-size:13px; margin-top:4px }
+
+    button { appearance:none; border:1px solid var(--border); background:#0b1220; color:var(--fg); padding:10px 14px; border-radius:12px; cursor:pointer; font-weight:700; transition:.15s ease-in-out; }
+    button.primary { background:var(--accent); color:#04130a; border-color:#10b981 }
+    button:hover { transform:translateY(-1px); filter:brightness(1.05) }
+    button:active { transform:translateY(0) }
+
+    .big { font-size:48px; padding:28px 44px; border-radius:18px }
+
+    table { width:100%; border-collapse:collapse; margin-top:14px; font-size:14px }
+    th, td { border-bottom:1px solid var(--border); padding:10px 8px; text-align:left }
+    th { color:#cbd5e1; font-weight:700; background:#0a0f1e; position:sticky; top:0; z-index:1 }
+    tbody tr:hover { background:rgba(2,6,23,.45) }
+
+    .muted { color:var(--muted) }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; justify-content:center }
+    .grid { display:grid; grid-template-columns: 1fr; gap:16px; margin-top:16px }
+    @media (min-width:720px){ .grid { grid-template-columns: 1fr 1fr } }
+    .panel { background:#0b1220; border:1px solid var(--border); border-radius:14px; padding:14px }
+    input[type="text"] { width:100%; padding:9px 12px; border-radius:10px; background:#020617; border:1px solid var(--border); color:var(--fg) }
+    .chip { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; background:#0b1220; color:#cbd5e1 }
+
+    .footer { margin-top:18px; color:var(--muted); font-size:12px }
+
+    details { margin-top:16px }
+    details summary { cursor:pointer }
+    pre.diag { background:#020617; border:1px solid var(--border); padding:10px; border-radius:10px; max-height:260px; overflow:auto }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Click Logger</h1>
+      <div class="sub">Bấm nút để <span class="chip">+1</span> và lưu thời điểm bấm. Số đếm <strong>tự động về 0 khi sang ngày mới</strong>. Dữ liệu lưu cục bộ (localStorage). Có thể <strong>xuất CSV/JSON</strong>.</div>
+
+      <div class="hero">
+        <div class="count" id="count">0<small>Hôm nay</small></div>
+        <div style="height:16px"></div>
+        <button class="primary big" id="btnAdd">Bấm +1</button>
+        <div style="height:12px"></div>
+        <div class="muted" id="last">Chưa có lần bấm nào</div>
+      </div>
+
+      <div class="toolbar">
+        <button id="btnExportCsv">Xuất CSV</button>
+        <button id="btnExportJson">Xuất JSON</button>
+        <button id="btnCopyLast">Copy thời điểm mới nhất</button>
+      </div>
+
+      <div class="grid">
+        <div class="panel">
+          <div class="muted">Nhập mô tả cho lần bấm tiếp theo (tùy chọn)</div>
+          <input type="text" id="memo" placeholder="Ví dụ: Lần thử nghiệm 1, ca 8h, thiết bị A" />
+        </div>
+        <div class="panel">
+          <div class="muted">Múi giờ trình duyệt:</div>
+          <div id="tz" class="chip"></div>
+          <div class="muted" style="margin-top:6px">CSV có: <em>ISO (UTC)</em>, <em>giờ địa phương</em>, <em>Unix ms</em>.</div>
+        </div>
+      </div>
+
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Thời điểm (Local)</th>
+            <th>ISO (UTC)</th>
+            <th>Unix ms</th>
+            <th>Mô tả</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+
+      <details>
+        <summary>Chẩn đoán & test tự động</summary>
+        <pre class="diag" id="diag"></pre>
+      </details>
+
+      <div class="footer">Mã nguồn chạy hoàn toàn phía client. Không gửi dữ liệu lên máy chủ.</div>
+    </div>
+  </div>
+
+  <script>
+    // ====== Utilities ======
+    const LS_KEY = 'clickLogger_v2';
+    const fmtLocal = (d) => new Intl.DateTimeFormat(undefined, {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit',
+      hour12:false
+    }).format(d);
+    const getTZ = () => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown TZ'; }
+      catch { return 'Unknown TZ'; }
+    };
+    const localYMD = (d) => [
+      d.getFullYear(),
+      String(d.getMonth()+1).padStart(2,'0'),
+      String(d.getDate()).padStart(2,'0')
+    ].join('-');
+
+    function save(log){ localStorage.setItem(LS_KEY, JSON.stringify(log)); }
+    function load(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } }
+
+    function download(filename, text){
+      const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    }
+
+    function toCSV(rows){
+      const header = ['index','timestamp_iso_utc','timestamp_local','unix_ms','memo'];
+      const esc = (v)=> '"' + String(v ?? '').replace(/"/g,'""') + '"';
+      const lines = [header.join(',')];
+      rows.forEach((r,i)=>{
+        const d = new Date(r.t);
+        lines.push([
+          i+1,
+          d.toISOString(),
+          fmtLocal(d),
+          d.getTime(),
+          r.m ?? ''
+        ].map(esc).join(','));
+      });
+      // FIX: join with \n to avoid invalid token error
+      return lines.join('\n');
+    }
+
+    // Pure helper for tests and render
+    function countToday(log, now = new Date()){
+      const key = localYMD(now);
+      return log.reduce((acc, r)=> acc + (localYMD(new Date(r.t)) === key ? 1 : 0), 0);
+    }
+
+    // ====== State and UI ======
+    const state = { log: load(), todayStr: localYMD(new Date()) };
+
+    const elCount = document.getElementById('count');
+    const elLast = document.getElementById('last');
+    const elBody = document.getElementById('tbody');
+    const elMemo = document.getElementById('memo');
+    const elTZ   = document.getElementById('tz');
+    const elDiag = document.getElementById('diag');
+
+    function render(){
+      elTZ.textContent = getTZ();
+
+      // Table
+      elBody.innerHTML = '';
+      state.log.forEach((item, idx)=>{
+        const d = new Date(item.t);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${idx+1}</td>
+          <td>${fmtLocal(d)}</td>
+          <td class="muted">${d.toISOString()}</td>
+          <td class="muted">${d.getTime()}</td>
+          <td>${(item.m||'')}</td>
+        `;
+        elBody.appendChild(tr);
+      });
+
+      // Count today only
+      const todayCount = countToday(state.log);
+      elCount.firstChild.nodeValue = String(todayCount);
+
+      if(state.log.length){
+        const d = new Date(state.log[state.log.length-1].t);
+        elLast.textContent = 'Lần bấm gần nhất: ' + fmtLocal(d) + ' (' + d.toISOString() + ')';
+      } else {
+        elLast.textContent = 'Chưa có lần bấm nào';
+      }
+    }
+
+    function pushClick(){
+      const now = Date.now();
+      const memo = elMemo.value.trim();
+      state.log.push({ t: now, ...(memo ? {m:memo}: {}) });
+      save(state.log);
+      elMemo.value = '';
+      render();
+    }
+
+    // Detect day change and auto reset today's counter (display)
+    function tick(){
+      const cur = localYMD(new Date());
+      if(cur !== state.todayStr){
+        state.todayStr = cur; // only the displayed counter returns to 0
+        render();
+      }
+    }
+
+    // ====== Bindings ======
+    document.getElementById('btnAdd').addEventListener('click', pushClick);
+
+    document.getElementById('btnExportCsv').addEventListener('click', ()=>{
+      const csv = toCSV(state.log);
+      const stamp = new Date().toISOString().replace(/[:.]/g,'-');
+      download(`click-log-${stamp}.csv`, csv);
+    });
+
+    document.getElementById('btnExportJson').addEventListener('click', ()=>{
+      const stamp = new Date().toISOString().replace(/[:.]/g,'-');
+      download(`click-log-${stamp}.json`, JSON.stringify(state.log, null, 2));
+    });
+
+    document.getElementById('btnCopyLast').addEventListener('click', async ()=>{
+      if(!state.log.length) return;
+      const d = new Date(state.log[state.log.length-1].t);
+      const text = `${fmtLocal(d)} | ${d.toISOString()} | ${d.getTime()}`;
+      try { await navigator.clipboard.writeText(text); } catch {}
+    });
+
+    // ====== Minimal tests ======
+    function logTest(msg){ elDiag.textContent += msg + "\n"; }
+    function expect(name, cond){ logTest((cond?"✅":"❌") + " " + name); }
+    function runTests(){
+      // Test 1: CSV join uses \n and includes header
+      const sample = [{t: Date.UTC(2020,0,1), m:'x'}];
+      const csv = toCSV(sample);
+      expect('CSV có header', csv.startsWith('index,timestamp_iso_utc'));
+      expect('CSV có newline', csv.split('\n').length >= 2);
+      expect('CSV có escape dấu nháy', toCSV([{t:0,m:'a"b'}]).includes('"a""b"'));
+
+      // Test 2: countToday only counts entries on same local day
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24*60*60*1000);
+      const log = [ {t: now.getTime()}, {t: yesterday.getTime()} ];
+      expect('countToday = 1 với 1 hôm nay + 1 hôm qua', countToday(log, now) === 1);
+
+      // Test 3: render does not throw
+      try { render(); expect('render chạy không lỗi', true); } catch(e){ expect('render chạy không lỗi', false); logTest(String(e)); }
+    }
+
+    // Init
+    render();
+    setInterval(tick, 1000 * 30);
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
+    // run tests after first paint
+    setTimeout(runTests, 0);
+  </script>
+</body>
+</html>
